@@ -1,0 +1,48 @@
+name: AzurePipelinesWidget
+options:
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  CODE_SIGN_IDENTITY: "-"
+  CODE_SIGN_STYLE: Manual
+  DEVELOPMENT_TEAM: ""
+  PROVISIONING_PROFILE_SPECIFIER: ""
+  SWIFT_VERSION: "5.9"
+  # Don't inject get-task-allow: chronod treats it as a debug build and
+  # refuses to host the widget.
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+targets:
+  AzurePipelinesWidget:
+    type: application
+    platform: macOS
+    sources: [HostApp]
+    info:
+      path: HostApp/Info.plist
+      properties:
+        CFBundleDisplayName: Azure Pipelines Widget
+        CFBundleIconFile: AppIcon
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.axial.azurepipelineswidget
+    dependencies:
+      - target: PipelinesWidgetExtension
+        embed: true
+  PipelinesWidgetExtension:
+    # ExtensionKit style (Contents/Extensions + EXAppExtensionAttributes):
+    # macOS 26 no longer discovers third-party widgets using the legacy
+    # NSExtension/PlugIns layout.
+    type: extensionkit-extension
+    platform: macOS
+    sources: [WidgetExtension]
+    info:
+      path: WidgetExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Azure Pipelines
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: WidgetExtension/PipelinesWidgetExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.axial.azurepipelineswidget.widget
+      SKIP_INSTALL: YES
