@@ -1,0 +1,66 @@
+name: AzurePipelinesMonitor
+options:
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  bundleIdPrefix: com.axial
+settings:
+  SWIFT_VERSION: "5.9"
+  # Automatic signing with the personal team; applies to both the iOS app and
+  # the embedded watch app so they stay signed across `xcodegen generate`.
+  CODE_SIGN_STYLE: Automatic
+  DEVELOPMENT_TEAM: "56CBGN5MFV"
+  MARKETING_VERSION: "1.0"
+  CURRENT_PROJECT_VERSION: "1"
+targets:
+  AzurePipelinesMonitor:
+    type: application
+    platform: iOS
+    sources: [AzurePipelinesMonitor]
+    dependencies:
+      - target: AzurePipelinesMonitorWatch
+        embed: true
+    entitlements:
+      path: AzurePipelinesMonitor/AzurePipelinesMonitor.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.axial.azurepipelinesmonitor
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.axial.azurepipelinesmonitor
+      TARGETED_DEVICE_FAMILY: "1,2"
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: AzurePipelinesMonitor/Info.plist
+      properties:
+        CFBundleDisplayName: Azure Pipelines
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.axial.azurepipelinesmonitor.refresh
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+
+  AzurePipelinesMonitorWatch:
+    type: application
+    platform: watchOS
+    # Shared Core files compiled into the watch app + the watch-only sources.
+    sources:
+      - AzurePipelinesMonitorWatch
+      - path: AzurePipelinesMonitor/Core/Models.swift
+      - path: AzurePipelinesMonitor/Core/AzureDevOpsClient.swift
+      - path: AzurePipelinesMonitor/Core/Keychain.swift
+      - path: AzurePipelinesMonitor/Core/AppConfig.swift
+      - path: AzurePipelinesMonitor/Core/ConnectivityKeys.swift
+      - path: AzurePipelinesMonitor/Core/PipelineStateUI.swift
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.axial.azurepipelinesmonitor.watchkitapp
+      TARGETED_DEVICE_FAMILY: "4"
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      # Pin explicitly: XcodeGen otherwise stamps the SDK version (watchOS 26)
+      # on this target, which blocks install on older watches.
+      WATCHOS_DEPLOYMENT_TARGET: "10.0"
+    info:
+      path: AzurePipelinesMonitorWatch/Info.plist
+      properties:
+        CFBundleDisplayName: Azure Pipelines
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.axial.azurepipelinesmonitor
