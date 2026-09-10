@@ -442,7 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         case .canceled:
             if notifyComplete && (isNewBuild ? previous != nil : wasActive) {
-                notify("⏹ Build canceled", for: status)
+                notify("🚫 Build canceled", for: status)
             }
         case .other:
             break
@@ -620,7 +620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .failed: emoji = "❌"
             case .running: emoji = "🔄"
             case .waitingApproval: emoji = "✋"
-            case .canceled: emoji = "⏹"
+            case .canceled: emoji = "🚫"
             case .other: emoji = "▫️"
             }
             var title = "\(emoji) \(status.pipelineName) — \(status.detail)"
