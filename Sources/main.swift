@@ -123,19 +123,6 @@ final class URLButton: NSButton {
     }
 }
 
-final class RunRef: NSObject {
-    let project: String
-    let definitionID: Int
-    let pipelineName: String
-    let lastBranch: String?
-    init(project: String, definitionID: Int, pipelineName: String, lastBranch: String?) {
-        self.project = project
-        self.definitionID = definitionID
-        self.pipelineName = pipelineName
-        self.lastBranch = lastBranch
-    }
-}
-
 // MARK: - Date helpers
 
 let isoFractional: ISO8601DateFormatter = {
@@ -198,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var timer: Timer?
     var config: Config?
     var statuses: [PipelineStatus] = []
+    var runWindow: RunPipelineWindowController?
     var problem: String?
     var lastUpdated: Date?
     var previousStates: [String: (buildID: Int, state: PipelineState)] = [:]
@@ -808,27 +796,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: Manual runs
 
     @objc func runFromMenu(_ sender: NSMenuItem) {
-        guard let ref = sender.representedObject as? RunRef else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Run “\(ref.pipelineName)”?"
-        alert.informativeText = "Queues a new run in \(ref.project). Leave the branch empty to use the pipeline's default."
-        let branchField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        branchField.placeholderString = "Branch (empty = pipeline default)"
-        // Pre-fill with the last run's branch — but not PR merge refs
-        // (refs/pull/…), which can't be queued directly.
-        if let last = ref.lastBranch, !last.hasPrefix("refs/") {
-            branchField.stringValue = last
+        guard let ref = sender.representedObject as? RunRef, let config else { return }
+        let service = config.keychainService ?? "AzurePipelinesMonitor"
+        let account = config.keychainAccount ?? "pat"
+        guard let pat = readPAT(service: service, account: account) else {
+            notifyRaw(title: "⚠️ Can't run pipeline",
+                      body: "No PAT found in the keychain.", url: nil)
+            return
         }
-        alert.accessoryView = branchField
-        alert.addButton(withTitle: "Run")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let branch = branchField.stringValue.trimmingCharacters(in: .whitespaces)
-        submitRun(ref: ref, branch: branch.isEmpty ? nil : branch)
+        runWindow?.close()
+        let window = RunPipelineWindowController(
+            ref: ref, organization: config.organization, pat: pat,
+            onSubmit: { [weak self] ref, branch, parameters in
+                self?.submitRun(ref: ref, branch: branch, parameters: parameters)
+            },
+            onClose: { [weak self] in self?.runWindow = nil })
+        runWindow = window
+        window.show()
     }
 
-    func submitRun(ref: RunRef, branch: String?) {
+    func submitRun(ref: RunRef, branch: String?, parameters: [String: Any] = [:]) {
         guard let config else { return }
         let service = config.keychainService ?? "AzurePipelinesMonitor"
         let account = config.keychainAccount ?? "pat"
@@ -844,9 +831,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         request.timeoutInterval = 20
         var body: [String: Any] = [:]
         if let branch {
-            let refName = branch.hasPrefix("refs/") ? branch : "refs/heads/\(branch)"
-            body = ["resources": ["repositories": ["self": ["refName": refName]]]]
+            body["resources"] = ["repositories": ["self": ["refName": fullRefName(branch)]]]
         }
+        if !parameters.isEmpty { body["templateParameters"] = parameters }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
