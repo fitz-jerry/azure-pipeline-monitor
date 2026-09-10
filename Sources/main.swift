@@ -114,6 +114,15 @@ final class ApprovalRef: NSObject {
     }
 }
 
+/// Borderless link button used inside alert accessory views.
+/// NSButton has no representedObject, so it carries its own URL.
+final class URLButton: NSButton {
+    var url: URL?
+    @objc func openLinkedURL() {
+        if let url { NSWorkspace.shared.open(url) }
+    }
+}
+
 final class RunRef: NSObject {
     let project: String
     let definitionID: Int
@@ -630,23 +639,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let item = NSMenuItem(title: title, action: #selector(openBuild(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = status.webURL
+
+            // A menu item that owns a submenu never fires its own action, so rows
+            // waiting on an approval get no submenu — clicking the row itself
+            // opens the approve/reject dialog.
+            if status.state == .waitingApproval, let approvalID = status.approvalID {
+                item.action = #selector(decideApproval(_:))
+                item.representedObject = ApprovalRef(project: status.project, approvalID: approvalID,
+                                                     pipelineName: status.pipelineName, url: status.webURL)
+                item.toolTip = status.branch.map { "Branch: \($0) — click to approve or reject" }
+                    ?? "Click to approve or reject"
+                menu.addItem(item)
+                continue
+            }
+
             if let branch = status.branch {
                 item.toolTip = "Branch: \(branch) — click to open in Azure DevOps"
             }
             let submenu = NSMenu()
-            if status.state == .waitingApproval, let approvalID = status.approvalID {
-                let ref = ApprovalRef(project: status.project, approvalID: approvalID,
-                                      pipelineName: status.pipelineName, url: status.webURL)
-                let approveItem = NSMenuItem(title: "Approve…", action: #selector(approveFromMenu(_:)), keyEquivalent: "")
-                approveItem.target = self
-                approveItem.representedObject = ref
-                submenu.addItem(approveItem)
-                let rejectItem = NSMenuItem(title: "Reject…", action: #selector(rejectFromMenu(_:)), keyEquivalent: "")
-                rejectItem.target = self
-                rejectItem.representedObject = ref
-                submenu.addItem(rejectItem)
-                submenu.addItem(.separator())
-            }
             let runItem = NSMenuItem(title: "Run Pipeline…", action: #selector(runFromMenu(_:)), keyEquivalent: "")
             runItem.target = self
             runItem.representedObject = RunRef(project: status.project, definitionID: status.definitionID,
@@ -696,29 +706,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: Approvals
 
-    @objc func approveFromMenu(_ sender: NSMenuItem) { promptForDecision(sender, approve: true) }
-    @objc func rejectFromMenu(_ sender: NSMenuItem) { promptForDecision(sender, approve: false) }
-
-    func promptForDecision(_ sender: NSMenuItem, approve: Bool) {
+    @objc func decideApproval(_ sender: NSMenuItem) {
         guard let ref = sender.representedObject as? ApprovalRef else { return }
         NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = approve
-            ? "Approve “\(ref.pipelineName)”?"
-            : "Reject “\(ref.pipelineName)”?"
-        alert.informativeText = approve
-            ? "The paused stage in \(ref.project) will continue running."
-            : "The paused stage in \(ref.project) will be rejected and the run will fail."
-        if !approve { alert.alertStyle = .warning }
-        let commentField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+
+        let commentField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
         commentField.placeholderString = "Optional comment"
-        alert.accessoryView = commentField
-        alert.addButton(withTitle: approve ? "Approve" : "Reject")
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        accessory.addSubview(commentField)
+        // The row no longer opens Azure DevOps on click, so offer the run here.
+        if let url = ref.url {
+            commentField.frame.origin.y = 26
+            accessory.frame.size.height = 50
+            let link = URLButton(frame: NSRect(x: -2, y: 0, width: 302, height: 20))
+            link.url = url
+            link.isBordered = false
+            link.alignment = .left
+            link.attributedTitle = NSAttributedString(
+                string: "Open run in Azure DevOps",
+                attributes: [.foregroundColor: NSColor.linkColor,
+                             .underlineStyle: NSUnderlineStyle.single.rawValue])
+            link.target = link
+            link.action = #selector(URLButton.openLinkedURL)
+            accessory.addSubview(link)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "“\(ref.pipelineName)” is waiting for approval"
+        alert.informativeText = "Approving lets the paused stage in \(ref.project) continue. "
+            + "Rejecting fails the run."
+        alert.accessoryView = accessory
+        alert.addButton(withTitle: "Approve")
+        alert.addButton(withTitle: "Reject")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let comment = commentField.stringValue.isEmpty
+
+        let approve: Bool
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: approve = true
+        case .alertSecondButtonReturn: approve = false
+        default: return
+        }
+        let typed = commentField.stringValue.trimmingCharacters(in: .whitespaces)
+        let comment = typed.isEmpty
             ? "\(approve ? "Approved" : "Rejected") via Azure Pipelines Monitor"
-            : commentField.stringValue
+            : typed
         submitApprovalDecision(ref: ref, approve: approve, comment: comment)
     }
 
